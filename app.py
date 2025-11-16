@@ -13,7 +13,7 @@ import pandas as pd
 import plotly.express as px
 
 supabase = init_supabase()
-geolocator = Nominatim(user_agent="Geopy Library")
+geolocator = Nominatim(user_agent="Geopy Library", timeout=10)
 
 st.set_page_config(layout="wide")
 if "selected_tourney" not in st.session_state:
@@ -51,7 +51,7 @@ center_lat = location.latitude
 center_lon = location.longitude
 
 # Get Regional Meta
-region_data = get_entries_within_radius(supabase, center_lat, center_lon, radius) 
+region_data = get_entries_within_radius(supabase, center_lat, center_lon, radius, int(selected_start_date.timestamp()), int(selected_end_date.timestamp()))
 
 meta = construct_meta(region_data)
 sorted_meta = meta_to_percent(meta)
@@ -74,15 +74,26 @@ map_col, tour_col = st.columns([2, 1])
 # -- Map --
 with map_col:
     m = folium.Map(location=[center_lat, center_lon], zoom_start=5)
-
+    
+    unique_tournaments = {}
     for row in region_data:
-        popup = Popup(html=str(row["TID"]), max_width="auto")
+        tid = row['TID']
+        if tid not in unique_tournaments:
+            unique_tournaments[tid] = {
+                'TID': tid,
+                'lat': row['lat'],
+                'lng': row['lng']
+            }
+
+    unique_tournament_list = list(unique_tournaments.values())
+    for tourn in unique_tournament_list:
+        popup = Popup(html=str(tourn['TID']), max_width="auto")
         folium.Marker(
-            [row['lat'], row['lng']],
-            tooltip=row['TID'],
+            [tourn['lat'], tourn['lng']],
+            tooltip=tourn['TID'],
             popup=popup,
             icon=Icon()
-        ).add_to(m)
+        ).add_to(m) 
     
     radius_meters = radius * 1609.34
 
@@ -95,16 +106,18 @@ with map_col:
     ).add_to(m)
 
     map_state = st_folium(m, height = 500, width = "100%", key="map")
-
-    if map_state and map_state.get("last_object_clicked_popup"):
+    
+    clicked = map_state.get("last_object_clicked_popup")
+    if map_state and clicked and clicked != st.session_state.selected_tourney:
         st.session_state.selected_tourney = map_state["last_object_clicked_popup"]
 
 with tour_col:
-    st.header("Tournament Breakdown")
+    #st.header("Tournament Breakdown")
 
     if st.session_state.selected_tourney is None:
         st.info("<- Click a marker to view tournament meta")
     else:
+        st.subheader(st.session_state.selected_tourney)
         tourney_data = get_entries_from_TID(supabase, st.session_state.selected_tourney)
         tourney_meta = construct_meta(tourney_data)
         tourney_sorted_meta = meta_to_percent(tourney_meta)
